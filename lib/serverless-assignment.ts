@@ -7,6 +7,7 @@ import { Construct } from "constructs";
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 import { generateBatch } from "../shared/util";
 import { reviews } from "../seed/reviews";
+import * as apig from "aws-cdk-lib/aws-apigateway";
 
 export class ServerlessAssignmentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -22,21 +23,20 @@ export class ServerlessAssignmentStack extends cdk.Stack {
 
     const reviewsTable = new dynamodb.Table(this, "ReviewsTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "rating", type: dynamodb.AttributeType.NUMBER },
+      partitionKey: { name: "review_id", type: dynamodb.AttributeType.NUMBER },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       tableName: "Reviews",
     });
 
-    reviewsTable.addLocalSecondaryIndex({
-      indexName: "reviewer_nameIx",
-      sortKey: { name: "reviewer_name", type: dynamodb.AttributeType.STRING },
-    });
+    // reviewsTable.addLocalSecondaryIndex({
+    //   indexName: "reviewer_id",
+    //   sortKey: { name: "reviewer_id", type: dynamodb.AttributeType.STRING },
+    // });
 
-    reviewsTable.addLocalSecondaryIndex({
-      indexName: "review_dateIx",
-      sortKey: { name: "review_date", type: dynamodb.AttributeType.STRING },
-    });
+    // reviewsTable.addLocalSecondaryIndex({
+    //   indexName: "review_dateIx",
+    //   sortKey: { name: "review_date", type: dynamodb.AttributeType.STRING },
+    // });
 
     
     // Functions 
@@ -71,6 +71,7 @@ export class ServerlessAssignmentStack extends cdk.Stack {
           },
         }
         );
+      
         
         new custom.AwsCustomResource(this, "reviewsddbInitData", {
           onCreate: {
@@ -92,7 +93,34 @@ export class ServerlessAssignmentStack extends cdk.Stack {
         reviewsTable.grantReadData(getReviewByIdFn)
         reviewsTable.grantReadData(getAllReviewsFn)
         
-        
+           // REST API 
+    const api = new apig.RestApi(this, "RestAPI", {
+      description: "assignment api",
+      deployOptions: {
+        stageName: "dev",
+      },
+      defaultCorsPreflightOptions: {
+        allowHeaders: ["Content-Type", "X-Amz-Date"],
+        allowMethods: ["OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"],
+        allowCredentials: true,
+        allowOrigins: ["*"],
+      },
+    });
+
+    // Reviews endpoint
+    const reviewsEndpoint = api.root.addResource("reviews");
+    reviewsEndpoint.addMethod(
+      "GET",
+      new apig.LambdaIntegration(getAllReviewsFn, { proxy: true })
+    );
+    
+    // Detail movie endpoint
+    const specificReviewEndpoint = reviewsEndpoint.addResource("{reviewId}");
+    specificReviewEndpoint.addMethod(
+      "GET",
+      new apig.LambdaIntegration(getReviewByIdFn, { proxy: true })
+    );
+
       }
     }
     
