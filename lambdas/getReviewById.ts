@@ -10,22 +10,22 @@ export const handler: Handler = async (event, context) => {
     // Print Event
     console.log("Event: ", JSON.stringify(event?.queryStringParameters));
     const parameters = event?.queryStringParameters;
-    const movieId = parameters ? parseInt(parameters.movieId) : undefined;
+    const reviewId = parameters ? parseInt(parameters.reviewId) : undefined;
 
-    if (!movieId) {
+    if (!reviewId) {
       return {
         statusCode: 404,
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Missing movie Id" }),
+        body: JSON.stringify({ Message: "Missing review Id" }),
       };
     }
 
     const commandOutput = await ddbDocClient.send(
       new GetCommand({
         TableName: process.env.TABLE_NAME,
-        Key: { id: movieId },
+        Key: { id: reviewId },
       })
     );
     console.log("GetCommand response: ", commandOutput);
@@ -35,7 +35,7 @@ export const handler: Handler = async (event, context) => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Invalid movie Id" }),
+        body: JSON.stringify({ Message: "Invalid review Id" }),
       };
     }
     const body = {

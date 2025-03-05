@@ -21,7 +21,7 @@ export const handler: Handler = async (event, context) => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Invalid movie Id" }),
+        body: JSON.stringify({ Message: "Invalid review Id" }),
       };
     }
     const body = {
