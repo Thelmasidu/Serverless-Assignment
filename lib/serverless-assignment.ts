@@ -13,25 +13,13 @@ export class ServerlessAssignmentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Tables 
-    /* const reviewsTable = new dynamodb.Table(this, "ReviewsTable", {
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      partitionKey: { name: "id", type: dynamodb.AttributeType.NUMBER },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      tableName: "Reviews",
-    }); */
-
     const reviewsTable = new dynamodb.Table(this, "ReviewsTable", {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      partitionKey: { name: "review_id", type: dynamodb.AttributeType.NUMBER },
+      partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
+      sortKey: { name: "review_id", type: dynamodb.AttributeType.NUMBER },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       tableName: "Reviews",
     });
-
-    // reviewsTable.addLocalSecondaryIndex({
-    //   indexName: "reviewer_id",
-    //   sortKey: { name: "reviewer_id", type: dynamodb.AttributeType.STRING },
-    // });
 
     // reviewsTable.addLocalSecondaryIndex({
     //   indexName: "review_dateIx",
@@ -108,15 +96,17 @@ export class ServerlessAssignmentStack extends cdk.Stack {
     });
 
     // Reviews endpoint
-    const reviewsEndpoint = api.root.addResource("reviews");
+    const moviesEndpoint = api.root.addResource("movies")
+    const reviewsEndpoint = moviesEndpoint.addResource("reviews");
+    const specificMovieEndpoint = reviewsEndpoint.addResource("{movieId}");
+
     reviewsEndpoint.addMethod(
       "GET",
       new apig.LambdaIntegration(getAllReviewsFn, { proxy: true })
     );
     
     // Detail movie endpoint
-    const specificReviewEndpoint = reviewsEndpoint.addResource("{reviewId}");
-    specificReviewEndpoint.addMethod(
+    specificMovieEndpoint.addMethod(
       "GET",
       new apig.LambdaIntegration(getReviewByIdFn, { proxy: true })
     );
