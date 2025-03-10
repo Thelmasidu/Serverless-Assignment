@@ -1,14 +1,18 @@
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbDocClient = createDDbDocClient();
 
 export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
   try {
     console.log("Event: ", JSON.stringify(event));
-    const queryString = event?.pathParameters;
-    const movieId = queryString?.movieId ? parseInt(queryString.movieId) : undefined;
+    const pathParams = event?.pathParameters;
+    const queryParams = event?.queryStringParameters || {};
+    
+    const movieId = pathParams?.movieId ? parseInt(pathParams.movieId) : undefined;
+    const reviewId = queryParams?.reviewId ? parseInt(queryParams.reviewId) : undefined;
+    const reviewerEmail = queryParams?.reviewerName;
 
     if (!movieId) {
       return {
@@ -20,15 +24,46 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
       };
     }
 
-    const commandOutput = await ddbDocClient.send(
-      new QueryCommand({
-        TableName: process.env.TABLE_NAME,
-        KeyConditionExpression: "movieId = :mid",
-        ExpressionAttributeValues: {
-          ":mid": movieId
-        }
-      })
-    );
+    let commandOutput;
+    
+    // Base query for the movie ID
+    const baseQuery = {
+      TableName: process.env.TABLE_NAME,
+      KeyConditionExpression: "movieId = :mid",
+      ExpressionAttributeValues: {
+        ":mid": movieId
+      }
+    };
+
+    // If reviewId is provided, add it to the query
+    if (reviewId) {
+      baseQuery.KeyConditionExpression += " AND review_id = :rid";
+      baseQuery.ExpressionAttributeValues[":rid"] = reviewId;
+    }
+    
+    // First get items by primary/sort key
+    commandOutput = await ddbDocClient.send(new QueryCommand(baseQuery));
+    
+    // If reviewer email is provided, filter the results
+    if (reviewerEmail && commandOutput.Items && commandOutput.Items.length > 0) {
+      commandOutput.Items = commandOutput.Items.filter(
+        item => item.reviewer_id === reviewerEmail
+      );
+    }
+    // If reviewerEmail but no results from the first query, try a scan with filter
+    else if (reviewerEmail && (!commandOutput.Items || commandOutput.Items.length === 0)) {
+      const scanOutput = await ddbDocClient.send(
+        new ScanCommand({
+          TableName: process.env.TABLE_NAME,
+          FilterExpression: "movieId = :mid AND reviewer_id = :rev",
+          ExpressionAttributeValues: {
+            ":mid": movieId,
+            ":rev": reviewerEmail
+          }
+        })
+      );
+      commandOutput = scanOutput;
+    }
 
     if (!commandOutput.Items || commandOutput.Items.length === 0) {
       return {
@@ -36,7 +71,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "No reviews found for this movie Id" }),
+        body: JSON.stringify({ Message: "No reviews found for this movie Id with the specified filters" }),
       };
     }
 
