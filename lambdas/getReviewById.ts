@@ -1,45 +1,47 @@
-import { Handler } from "aws-lambda";
-
+import { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbDocClient = createDDbDocClient();
 
-export const handler: Handler = async (event, context) => {
+export const handler: APIGatewayProxyHandlerV2 = async (event, context) => {
   try {
-    // Print Event
-    console.log("Event: ", JSON.stringify(event?.queryStringParameters));
-    const parameters = event?.queryStringParameters;
-    const reviewId = parameters ? parseInt(parameters.reviewId) : undefined;
+    console.log("Event: ", JSON.stringify(event));
+    const queryString = event?.pathParameters;
+    const movieId = queryString?.movieId ? parseInt(queryString.movieId) : undefined;
 
-    if (!reviewId) {
+    if (!movieId) {
       return {
         statusCode: 404,
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Missing review Id" }),
+        body: JSON.stringify({ Message: "Missing movie Id" }),
       };
     }
 
     const commandOutput = await ddbDocClient.send(
-      new GetCommand({
+      new QueryCommand({
         TableName: process.env.TABLE_NAME,
-        Key: { id: reviewId },
+        KeyConditionExpression: "movieId = :mid",
+        ExpressionAttributeValues: {
+          ":mid": movieId
+        }
       })
     );
-    console.log("GetCommand response: ", commandOutput);
-    if (!commandOutput.Item) {
+
+    if (!commandOutput.Items || commandOutput.Items.length === 0) {
       return {
         statusCode: 404,
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ Message: "Invalid review Id" }),
+        body: JSON.stringify({ Message: "No reviews found for this movie Id" }),
       };
     }
+
     const body = {
-      data: commandOutput.Item,
+      data: commandOutput.Items,
     };
 
     // Return Response
