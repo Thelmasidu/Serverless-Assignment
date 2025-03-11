@@ -59,8 +59,19 @@ export class ServerlessAssignmentStack extends cdk.Stack {
           },
         }
         );
+   const updateReviewFn = new lambdanode.NodejsFunction(this, "UpdateReviewFn", {
+    architecture: lambda.Architecture.ARM_64,
+    runtime: lambda.Runtime.NODEJS_22_X,
+    entry: `${__dirname}/../lambdas/private/updateReview.ts`,
+    timeout: cdk.Duration.seconds(10),
+    memorySize: 128,
+    environment: {
+      TABLE_NAME: reviewsTable.tableName,
+      REGION: "eu-west-1",
+    },
+  });
 
-   const newReviewFn = new lambdanode.NodejsFunction(this, "AddReviewsFn", {
+  const newReviewFn = new lambdanode.NodejsFunction(this, "AddReviewsFn", {
     architecture: lambda.Architecture.ARM_64,
     runtime: lambda.Runtime.NODEJS_22_X,
     entry: `${__dirname}/../lambdas/private/addReviews.ts`,
@@ -71,8 +82,6 @@ export class ServerlessAssignmentStack extends cdk.Stack {
       REGION: "eu-west-1",
     },
   });
-
-      
         
         new custom.AwsCustomResource(this, "reviewsddbInitData", {
           onCreate: {
@@ -94,6 +103,7 @@ export class ServerlessAssignmentStack extends cdk.Stack {
         reviewsTable.grantReadData(getReviewByIdFn)
         reviewsTable.grantReadData(getAllReviewsFn)
         reviewsTable.grantReadWriteData(newReviewFn)
+        reviewsTable.grantReadWriteData(updateReviewFn)
         
            // REST API 
     const api = new apig.RestApi(this, "RestAPI", {
@@ -109,28 +119,37 @@ export class ServerlessAssignmentStack extends cdk.Stack {
       },
     });
 
-    // Reviews endpoint
-    const moviesEndpoint = api.root.addResource("movies")
-    const reviewsEndpoint = moviesEndpoint.addResource("reviews");
-    const specificMovieEndpoint = reviewsEndpoint.addResource("{movieId}");
+ // Reviews endpoint
+ const moviesEndpoint = api.root.addResource("movies");
+ const reviewsEndpoint = moviesEndpoint.addResource("reviews");
+ 
+ // This creates the "movies/reviews" resource that can have additional path parameters
+ const movieIdParam = reviewsEndpoint.addResource("{movieId}");
+ const reviewIdParam = movieIdParam.addResource("{reviewId}");
 
-    reviewsEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getAllReviewsFn, { proxy: true })
-    );
+ // GET all reviews
+ reviewsEndpoint.addMethod(
+   "GET",
+   new apig.LambdaIntegration(getAllReviewsFn, { proxy: true })
+ );
 
-      reviewsEndpoint.addMethod(
-        "POST",
-        new apig.LambdaIntegration(newReviewFn, { proxy: true })
-      );
-  
-    
-    // Detail movie endpoint
-    specificMovieEndpoint.addMethod(
-      "GET",
-      new apig.LambdaIntegration(getReviewByIdFn, { proxy: true })
-    );
+ // POST new review
+ reviewsEndpoint.addMethod(
+   "POST",
+   new apig.LambdaIntegration(newReviewFn, { proxy: true })
+ );
 
+ // PUT update review - matches the path pattern in error: /movies/reviews/{movieId}/{reviewId}
+ reviewIdParam.addMethod(
+   "PUT",
+   new apig.LambdaIntegration(updateReviewFn, { proxy: true })
+ );
+
+ // GET reviews by movie ID
+ movieIdParam.addMethod(
+   "GET",
+   new apig.LambdaIntegration(getReviewByIdFn, { proxy: true })
+ );
       }
     }
     
