@@ -34,7 +34,7 @@ export class ServerlessAssignmentStack extends cdk.Stack {
       {
         architecture: lambda.Architecture.ARM_64,
         runtime: lambda.Runtime.NODEJS_18_X,
-        entry: `${__dirname}/../lambdas/getReviewById.ts`,
+        entry: `${__dirname}/../lambdas/public/getReviewById.ts`,
         timeout: cdk.Duration.seconds(10),
         memorySize: 128,
         environment: {
@@ -50,7 +50,7 @@ export class ServerlessAssignmentStack extends cdk.Stack {
         {
           architecture: lambda.Architecture.ARM_64,
           runtime: lambda.Runtime.NODEJS_18_X,
-          entry: `${__dirname}/../lambdas/getAllReviews.ts`,
+          entry: `${__dirname}/../lambdas/public/getAllReviews.ts`,
           timeout: cdk.Duration.seconds(10),
           memorySize: 128,
           environment: {
@@ -59,6 +59,19 @@ export class ServerlessAssignmentStack extends cdk.Stack {
           },
         }
         );
+
+   const newReviewFn = new lambdanode.NodejsFunction(this, "AddReviewsFn", {
+    architecture: lambda.Architecture.ARM_64,
+    runtime: lambda.Runtime.NODEJS_22_X,
+    entry: `${__dirname}/../lambdas/private/addReviews.ts`,
+    timeout: cdk.Duration.seconds(10),
+    memorySize: 128,
+    environment: {
+      TABLE_NAME: reviewsTable.tableName,
+      REGION: "eu-west-1",
+    },
+  });
+
       
         
         new custom.AwsCustomResource(this, "reviewsddbInitData", {
@@ -80,6 +93,7 @@ export class ServerlessAssignmentStack extends cdk.Stack {
         // Permissions 
         reviewsTable.grantReadData(getReviewByIdFn)
         reviewsTable.grantReadData(getAllReviewsFn)
+        reviewsTable.grantReadWriteData(newReviewFn)
         
            // REST API 
     const api = new apig.RestApi(this, "RestAPI", {
@@ -104,6 +118,12 @@ export class ServerlessAssignmentStack extends cdk.Stack {
       "GET",
       new apig.LambdaIntegration(getAllReviewsFn, { proxy: true })
     );
+
+      reviewsEndpoint.addMethod(
+        "POST",
+        new apig.LambdaIntegration(newReviewFn, { proxy: true })
+      );
+  
     
     // Detail movie endpoint
     specificMovieEndpoint.addMethod(
