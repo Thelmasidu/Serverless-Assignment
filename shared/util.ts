@@ -1,6 +1,7 @@
 import { marshall } from "@aws-sdk/util-dynamodb";
 import { Review } from "./types";
 
+
 export const generateReviewItem = (review: Review) => {
   return {
     PutRequest: {
@@ -14,3 +15,4 @@ export const generateBatch = (data: Review[]) => {
     return generateReviewItem(e);
   });
 };
+

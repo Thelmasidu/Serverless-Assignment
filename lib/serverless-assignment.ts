@@ -1,155 +1,36 @@
 import * as cdk from "aws-cdk-lib";
-import * as lambdanode from "aws-cdk-lib/aws-lambda-nodejs";
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as custom from "aws-cdk-lib/custom-resources";
 import { Construct } from "constructs";
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
-import { generateBatch } from "../shared/util";
-import { reviews } from "../seed/reviews";
-import * as apig from "aws-cdk-lib/aws-apigateway";
+import { UserPool } from "aws-cdk-lib/aws-cognito";
+import { AuthApi } from './auth-api';
+import {AppApi } from './app-api';
 
 export class ServerlessAssignmentStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const reviewsTable = new dynamodb.Table(this, "ReviewsTable", {
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      partitionKey: { name: "movieId", type: dynamodb.AttributeType.NUMBER },
-      sortKey: { name: "review_id", type: dynamodb.AttributeType.NUMBER },
+    const userPool = new UserPool(this, "UserPool", {
+      signInAliases: { username: true, email: true },
+      selfSignUpEnabled: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-      tableName: "Reviews",
     });
 
-    // reviewsTable.addLocalSecondaryIndex({
-    //   indexName: "review_dateIx",
-    //   sortKey: { name: "review_date", type: dynamodb.AttributeType.STRING },
-    // });
+    const userPoolId = userPool.userPoolId;
 
-    
-    // Functions 
-    const getReviewByIdFn = new lambdanode.NodejsFunction(
-      this,
-      "GetReviewByIdFn",
-      {
-        architecture: lambda.Architecture.ARM_64,
-        runtime: lambda.Runtime.NODEJS_18_X,
-        entry: `${__dirname}/../lambdas/public/getReviewById.ts`,
-        timeout: cdk.Duration.seconds(10),
-        memorySize: 128,
-        environment: {
-          TABLE_NAME: reviewsTable.tableName,
-          REGION: 'eu-west-1',
-        },
-      }
-      );
-      
-      const getAllReviewsFn = new lambdanode.NodejsFunction(
-        this,
-        "GetAllReviewsFn",
-        {
-          architecture: lambda.Architecture.ARM_64,
-          runtime: lambda.Runtime.NODEJS_18_X,
-          entry: `${__dirname}/../lambdas/public/getAllReviews.ts`,
-          timeout: cdk.Duration.seconds(10),
-          memorySize: 128,
-          environment: {
-            TABLE_NAME: reviewsTable.tableName,
-            REGION: 'eu-west-1',
-          },
-        }
-        );
-   const updateReviewFn = new lambdanode.NodejsFunction(this, "UpdateReviewFn", {
-    architecture: lambda.Architecture.ARM_64,
-    runtime: lambda.Runtime.NODEJS_22_X,
-    entry: `${__dirname}/../lambdas/private/updateReview.ts`,
-    timeout: cdk.Duration.seconds(10),
-    memorySize: 128,
-    environment: {
-      TABLE_NAME: reviewsTable.tableName,
-      REGION: "eu-west-1",
-    },
-  });
-
-  const newReviewFn = new lambdanode.NodejsFunction(this, "AddReviewsFn", {
-    architecture: lambda.Architecture.ARM_64,
-    runtime: lambda.Runtime.NODEJS_22_X,
-    entry: `${__dirname}/../lambdas/private/addReviews.ts`,
-    timeout: cdk.Duration.seconds(10),
-    memorySize: 128,
-    environment: {
-      TABLE_NAME: reviewsTable.tableName,
-      REGION: "eu-west-1",
-    },
-  });
-        
-        new custom.AwsCustomResource(this, "reviewsddbInitData", {
-          onCreate: {
-            service: "DynamoDB",
-            action: "batchWriteItem",
-            parameters: {
-              RequestItems: {
-                [reviewsTable.tableName]: generateBatch(reviews),
-              },
-            },
-            physicalResourceId: custom.PhysicalResourceId.of("reviewsddbInitData"), //.of(Date.now().toString()),
-          },
-          policy: custom.AwsCustomResourcePolicy.fromSdkCalls({
-            resources: [reviewsTable.tableArn],
-          }),
-        });
-        
-        // Permissions 
-        reviewsTable.grantReadData(getReviewByIdFn)
-        reviewsTable.grantReadData(getAllReviewsFn)
-        reviewsTable.grantReadWriteData(newReviewFn)
-        reviewsTable.grantReadWriteData(updateReviewFn)
-        
-           // REST API 
-    const api = new apig.RestApi(this, "RestAPI", {
-      description: "assignment api",
-      deployOptions: {
-        stageName: "dev",
-      },
-      defaultCorsPreflightOptions: {
-        allowHeaders: ["Content-Type", "X-Amz-Date"],
-        allowMethods: ["OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"],
-        allowCredentials: true,
-        allowOrigins: ["*"],
-      },
+    const appClient = userPool.addClient("AppClient", {
+      authFlows: { userPassword: true },
     });
 
- // Reviews endpoint
- const moviesEndpoint = api.root.addResource("movies");
- const reviewsEndpoint = moviesEndpoint.addResource("reviews");
- 
- // This creates the "movies/reviews" resource that can have additional path parameters
- const movieIdParam = reviewsEndpoint.addResource("{movieId}");
- const reviewIdParam = movieIdParam.addResource("{reviewId}");
+    const userPoolClientId = appClient.userPoolClientId;
 
- // GET all reviews
- reviewsEndpoint.addMethod(
-   "GET",
-   new apig.LambdaIntegration(getAllReviewsFn, { proxy: true })
- );
+    new AuthApi(this, 'AuthServiceApi', {
+      userPoolId: userPoolId,
+      userPoolClientId: userPoolClientId,
+    });
 
- // POST new review
- reviewsEndpoint.addMethod(
-   "POST",
-   new apig.LambdaIntegration(newReviewFn, { proxy: true })
- );
-
- // PUT update review - matches the path pattern in error: /movies/reviews/{movieId}/{reviewId}
- reviewIdParam.addMethod(
-   "PUT",
-   new apig.LambdaIntegration(updateReviewFn, { proxy: true })
- );
-
- // GET reviews by movie ID
- movieIdParam.addMethod(
-   "GET",
-   new apig.LambdaIntegration(getReviewByIdFn, { proxy: true })
- );
+    new AppApi(this, 'AppApi', {
+      userPoolId: userPoolId,
+      userPoolClientId: userPoolClientId,
+    } );
       }
     }
     
