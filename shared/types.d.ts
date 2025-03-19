@@ -24,4 +24,8 @@ export type SignInBody = {
   username: string;
   password: string;
 }
+
+export type LanguageQueryParams = {
+  language?: string;
+};
  
