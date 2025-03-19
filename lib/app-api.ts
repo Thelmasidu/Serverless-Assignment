@@ -8,6 +8,7 @@ import { generateBatch } from "../shared/util";
 import { reviews } from "../seed/reviews";
 import * as apig from "aws-cdk-lib/aws-apigateway";
 import * as node from "aws-cdk-lib/aws-lambda-nodejs";
+import * as iam from "aws-cdk-lib/aws-iam";
 
 type AppApiProps = {
   userPoolId: string;
@@ -51,6 +52,22 @@ export class AppApi extends Construct {
       entry: `${__dirname}/../lambdas/public/getAllReviews.ts`,
     });
 
+    const translateReviewFn = new lambdanode.NodejsFunction(this, "TranslateReviewFn", {
+      ...appCommonFnProps,
+      entry: `${__dirname}/../lambdas/public/reviewTranslation.ts`,
+      bundling: {
+        externalModules: [],
+      },
+    });
+
+    // Grant the translate function permission to use AWS Translate service
+    translateReviewFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["translate:TranslateText"],
+        resources: ["*"],
+      })
+    );
+
     const updateReviewFn = new lambdanode.NodejsFunction(this, "UpdateReviewFn", {
       ...appCommonFnProps,
       entry: `${__dirname}/../lambdas/private/updateReview.ts`,
@@ -93,6 +110,7 @@ export class AppApi extends Construct {
     reviewsTable.grantReadData(getAllReviewsFn);
     reviewsTable.grantReadWriteData(newReviewFn);
     reviewsTable.grantReadWriteData(updateReviewFn);
+    reviewsTable.grantReadData(translateReviewFn);
 
     // REST API
     const api = new apig.RestApi(this, "RestAPI", {
@@ -138,6 +156,7 @@ export class AppApi extends Construct {
     const reviewsEndpoint = moviesEndpoint.addResource("reviews");
     const movieIdParam = reviewsEndpoint.addResource("{movieId}");
     const reviewIdParam = movieIdParam.addResource("{reviewId}");
+    const translationResource = reviewIdParam.addResource("translation");
 
     // Methods
     reviewsEndpoint.addMethod("GET", new apig.LambdaIntegration(getAllReviewsFn));
@@ -159,6 +178,16 @@ export class AppApi extends Construct {
     movieIdParam.addMethod("GET", new apig.LambdaIntegration(getReviewByIdFn), {
       requestValidator,
       requestParameters: { "method.request.path.movieId": true },
+    });
+
+    // Add the translation endpoint GET method
+    translationResource.addMethod("GET", new apig.LambdaIntegration(translateReviewFn), {
+      requestValidator,
+      requestParameters: {
+        "method.request.path.movieId": true,
+        "method.request.path.reviewId": true,
+        "method.request.querystring.language": true, // Required parameter
+      },
     });
   }
 }
